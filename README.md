@@ -706,3 +706,129 @@ Is it a cron job or batch task?
   YES → Native image in a Kubernetes CronJob (fast start, exits cleanly, zero idle cost)
   NO  → Long-running service with health checks
 ```
+
+--- 
+
+# Quarkus Build & Run Modes
+
+---
+
+## 1. Dev Mode (local development)
+
+Hot reload, no build needed. Quarkus recompiles on the fly.
+
+```bash
+./mvnw quarkus:dev
+```
+
+- Starts on `http://localhost:8080`
+- Dev UI available at `http://localhost:8080/q/dev`
+- No need to rebuild on code changes
+- DevServices auto-starts Postgres, Kafka, Keycloak via Docker
+
+---
+
+## 2. JVM Mode (standard build)
+
+Compiles to a regular JAR, runs on the JVM. Fastest to build, slowest to start.
+
+**Build:**
+```bash
+./mvnw clean package -DskipTests
+```
+
+**Run:**
+```bash
+java -jar target/quarkus-app/quarkus-run.jar
+```
+
+With a specific profile:
+```bash
+java -Dquarkus.profile=dev -jar target/quarkus-app/quarkus-run.jar
+```
+
+Output structure:
+```
+target/
+  quarkus-app/
+    quarkus-run.jar       ← entry point
+    lib/                  ← dependencies
+    app/                  ← your classes
+    quarkus/              ← quarkus internals
+```
+
+---
+
+## 3. Native Mode (GraalVM/Mandrel)
+
+Compiles to a native binary. Slow to build, very fast to start, low memory footprint.
+
+### 3a. Local native (GraalVM/Mandrel installed on your machine)
+
+```bash
+./mvnw clean package -Pnative -DskipTests -Dquarkus.native.remote-container-build=false
+```
+
+**Run:**
+```bash
+./target/your-app-1.0-runner
+```
+
+### 3b. Container native (Docker builds the native image, no GraalVM needed locally)
+
+```bash
+./mvnw clean package -Pnative -DskipTests -Dquarkus.native.container-build=true
+```
+
+### 3c. Remote container native (your project's setup — build happens on a remote builder)
+
+```bash
+./mvnw clean package -Pnative -DskipTests -Dquarkus.profile=dev -T 1
+```
+
+The `remote-container-build=true` is already set in the pom `native` profile, so it uses the company's remote builder image.
+
+**Run:**
+```bash
+./application/api/api-core/target/api-core-999-SNAPSHOT-runner
+```
+
+---
+
+## 4. Native container image (build native + wrap in Docker image)
+
+```bash
+./mvnw clean package -Pnative -DskipTests \
+  -Dquarkus.native.container-build=true \
+  -Dquarkus.container-image.build=true
+```
+
+**Run:**
+```bash
+docker run -i --rm -p 8080:8080 your-org/your-app:1.0
+```
+
+---
+
+## Comparison Table
+
+| Mode | Build time | Startup time | Memory | Use case |
+|---|---|---|---|---|
+| Dev | None | ~3s | High | Local development |
+| JVM | Fast (~30s) | ~2-5s | Medium | Staging / quick test |
+| Native local | Very slow (~10min) | ~50ms | Very low | Prod-like local test |
+| Native container | Very slow (~10min) | ~50ms | Very low | CI/CD pipeline |
+
+---
+
+## Useful flags
+
+| Flag | Effect |
+|---|---|
+| `-DskipTests` | Skip all tests |
+| `-Dquarkus.profile=dev` | Use dev profile config |
+| `-T 1` | Single thread (saves RAM during native build) |
+| `-Pnative` | Activate native Maven profile |
+| `-Dquarkus.native.remote-container-build=false` | Force local native build |
+| `-Dquarkus.native.container-build=true` | Build native inside local Docker |
+| `-Dquarkus.native.native-image-xmx=6G` | Max heap for native compiler |
