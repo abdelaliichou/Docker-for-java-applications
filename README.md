@@ -713,6 +713,14 @@ Is it a cron job or batch task?
 
 ---
 
+## 1. Run docker and keycloack if you have infrastructure (local development)
+
+```bash
+docker-compose -f docker-compose.dev-env.yml up -d ( tenant project )
+```
+
+---
+
 ## 1. Dev Mode (local development)
 
 Hot reload, no build needed. Quarkus recompiles on the fly.
