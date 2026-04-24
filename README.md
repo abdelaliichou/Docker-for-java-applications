@@ -53,15 +53,15 @@ For your work: use **Mandrel or GraalVM** to BUILD native images, use **OpenJDK 
 
 ---
 
-## PART 2 — How Your Build Output Works (What Quarkus Actually Produces)
+## PART 2 — How Your Build Output Works (What Maven Puts in Your `target/` Folder)
 
-Before understanding the Dockerfiles, you need to understand what Gradle/Maven puts in your `build/` folder.
+Before understanding the Dockerfiles, you need to understand what Maven puts in your `target/` folder.
 
 ### Fast-JAR (your `Dockerfile.jvm`)
 
-When you run `./gradlew build`, Quarkus produces:
+When you run `./mvnw package`, Quarkus produces:
 ```
-build/quarkus-app/
+target/quarkus-app/
 ├── quarkus-run.jar          ← tiny 8KB launcher JAR (just Main class)
 ├── lib/
 │   ├── boot/                ← Quarkus bootstrap JARs
@@ -77,9 +77,9 @@ build/quarkus-app/
 
 ### Legacy-JAR (your `Dockerfile.legacy-jar`)
 
-When you run `./gradlew build -Dquarkus.package.type=legacy-jar`:
+When you run `./mvnw package -Dquarkus.package.type=legacy-jar`:
 ```
-build/
+target/
 ├── my-app-1.0.0-runner.jar   ← fat/uber JAR with everything inside
 └── lib/                      ← external dependencies as separate JARs
 ```
@@ -88,9 +88,9 @@ This is the old way. Everything is jammed into one JAR. Simple but less cache-fr
 
 ### Native (your `Dockerfile.native` and `Dockerfile.native-micro`)
 
-When you run `./gradlew build -Dquarkus.package.type=native`:
+When you run `./mvnw package -Pnative`:
 ```
-build/
+target/
 └── my-app-1.0.0-runner       ← a Linux executable binary (no .jar, no .class)
 ```
 
@@ -115,10 +115,10 @@ ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en'
 **What it does:** Sets environment variables baked into the image. Every process that runs inside the container inherits these. `LANG` affects how Java formats dates, numbers, and reads files. Without this, Java may behave oddly with non-ASCII characters.
 
 ```dockerfile
-COPY --chown=185 build/quarkus-app/lib/ /deployments/lib/
-COPY --chown=185 build/quarkus-app/*.jar /deployments/
-COPY --chown=185 build/quarkus-app/app/ /deployments/app/
-COPY --chown=185 build/quarkus-app/quarkus/ /deployments/quarkus/
+COPY --chown=185 target/quarkus-app/lib/ /deployments/lib/
+COPY --chown=185 target/quarkus-app/*.jar /deployments/
+COPY --chown=185 target/quarkus-app/app/ /deployments/app/
+COPY --chown=185 target/quarkus-app/quarkus/ /deployments/quarkus/
 ```
 **What it does:** Copies files from your host machine (where you run `docker build`) INTO the image. The destination is `/deployments/` which is where the `run-java.sh` script in the base image looks for the app.
 
@@ -130,7 +130,7 @@ Docker builds images in **layers**. Each instruction creates a new layer. Layers
 
 ```
 Layer 1: FROM (base image)              → never changes
-Layer 2: ENV LANG                       → almost never changes  
+Layer 2: ENV LANG                       → almost never changes
 Layer 3: COPY lib/                      → changes only when you add a new dependency
 Layer 4: COPY *.jar (quarkus-run.jar)   → rarely changes
 Layer 5: COPY app/                      → changes every time you change YOUR code
@@ -139,7 +139,7 @@ Layer 6: COPY quarkus/                  → changes when Quarkus config changes
 
 When you change a line of business logic, only `app/` changes. Docker reuses layers 1-4 from cache and only rebuilds layers 5-6. This makes rebuilds **10x faster** and **registry pushes much smaller** (only the changed layers are pushed).
 
-If you had written `COPY build/quarkus-app/ /deployments/` (one line), Docker would invalidate the entire thing every single build.
+If you had written `COPY target/quarkus-app/ /deployments/` (one line), Docker would invalidate the entire thing every single build.
 
 ```dockerfile
 EXPOSE 8080
@@ -157,7 +157,7 @@ ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 ```
 These ENVs are read by `run-java.sh` (a script baked into the base image):
-- `AB_JOLOKIA_OFF=""` — disables Jolokia JMX agent (you don't want it leaking metrics endpoints in prod usually)
+- `AB_JOLOKIA_OFF=""` — disables Jolokia JMX agent (you don't want it leaking metrics endpoints in prod)
 - `JAVA_OPTS` — JVM flags:
   - `-Dquarkus.http.host=0.0.0.0` — tells Quarkus to listen on ALL network interfaces (not just localhost — critical in containers, otherwise the port is unreachable from outside)
   - `-Djava.util.logging.manager=...` — uses JBoss log manager, needed for Quarkus logging to work correctly
@@ -173,13 +173,13 @@ Notice there is **no CMD or ENTRYPOINT** — they're inherited from the base ima
 FROM registry.access.redhat.com/ubi9/openjdk-21:1.22
 ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en'
 
-COPY build/lib/* /deployments/lib/
-COPY build/*-runner.jar /deployments/quarkus-run.jar
+COPY target/lib/* /deployments/lib/
+COPY target/*-runner.jar /deployments/quarkus-run.jar
 ```
 
 Same base, but only 2 COPY instructions. The legacy format puts all deps in one fat JAR (`-runner.jar`), so there's less to copy — but you lose the fine-grained layer caching of the fast-jar approach.
 
-**When would you use this?** For compatibility with tooling that expects a single JAR. Or for simpler deployments where build speed isn't a priority. In most cases, prefer the fast-jar format.
+**When would you use this?** For compatibility with tooling that expects a single JAR, or for simpler deployments where build speed isn't a priority. In most cases, prefer the fast-jar format.
 
 ---
 
@@ -203,7 +203,7 @@ RUN chown 1001 /work \
 **What it does:** Runs a shell command inside the image during build time. Here it sets permissions on `/work/` so user 1001 can write to it. The `&&` chains commands in one `RUN` instruction — this is important because each `RUN` is its own layer. Chaining keeps it as one layer.
 
 ```dockerfile
-COPY --chown=1001:root build/*-runner /work/application
+COPY --chown=1001:root target/*-runner /work/application
 ```
 Copies the native binary (`my-app-1.0.0-runner`, the executable file) to `/work/application`. The `*` glob matches any filename ending in `-runner`.
 
@@ -214,7 +214,7 @@ CMD ["./application", "-Dquarkus.http.host=0.0.0.0"]
 - Exec form: process PID 1 IS your application → it receives OS signals (SIGTERM for graceful shutdown) directly
 - Shell form: a `/bin/sh` process is PID 1, and it may not forward signals to your app → container doesn't shut down gracefully
 
-**`-Dquarkus.http.host=0.0.0.0`** — wait, this is a JVM flag syntax (`-D`), but there's no JVM! This is actually Quarkus reading it as a command-line argument directly (Quarkus native images support this pattern for compatibility).
+**`-Dquarkus.http.host=0.0.0.0`** — this looks like a JVM flag (`-D`), but there's no JVM! Quarkus native images support this argument syntax for compatibility with the JVM mode configuration style.
 
 ---
 
@@ -242,12 +242,12 @@ Installs packages INTO `/mnt/rootfs` (not into the builder itself). `--installro
 
 ```dockerfile
 RUN dnf install --installroot /mnt/rootfs \
-    coreutils-single \   # basic Linux commands (ls, cp, echo...)
-    glibc-minimal-langpack \ # C standard library (native binaries need this)
-    curl-minimal \       # for health checks maybe
-    openssl-libs \       # TLS support
-    ca-certificates \    # trust store (HTTPS calls need this)
-    zlib \              # compression
+    coreutils-single \        # basic Linux commands (ls, cp, echo...)
+    glibc-minimal-langpack \  # C standard library (native binaries need this)
+    curl-minimal \            # for health checks
+    openssl-libs \            # TLS support
+    ca-certificates \         # trust store (HTTPS calls need this)
+    zlib \                    # compression
     ...
 ```
 Only the absolute minimum libraries the native binary needs to run. No bash, no package manager, no kernel, no editor. Just the C runtime and TLS libs.
@@ -285,11 +285,11 @@ The rest is identical to `Dockerfile.native`. Result: an image potentially under
 | **Debugging** | Easy | Easy | Hard | Hard |
 | **Reflection/dynamic** | Full support | Full support | Limited | Limited |
 
-**Use JVM Fast-JAR when:** Your app uses lots of reflection (Spring Boot does heavily), you want maximum throughput under sustained load, you need easy debugging, build times matter.
+**Use JVM Fast-JAR when:** Your app uses lots of reflection, you want maximum throughput under sustained load, you need easy debugging, or build times matter.
 
 **Use Native/Native-Micro when:** You're building serverless functions, need sub-second cold starts, have strict memory constraints, or run thousands of instances (cost savings on memory).
 
-**Use Legacy-JAR when:** You're migrating an old app that was packaged as a fat JAR and you don't want to restructure yet.
+**Use Legacy-JAR when:** You're migrating an old app packaged as a fat JAR and don't want to restructure yet.
 
 ---
 
@@ -329,7 +329,7 @@ services:
     hostname: kafka
     environment:
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      
+
   my-quarkus-app:
     image: quarkus/tenant-jvm
     environment:
@@ -348,7 +348,7 @@ The `${VAR:default}` syntax means "use the env var if present, else use localhos
 
 ### Consumer containers vs API containers
 
-A common pattern at your company is probably: one image, two different behaviors. The same JAR can run as an HTTP API or as a Kafka consumer depending on config:
+One image, two different behaviors. The same JAR can run as an HTTP API or as a Kafka consumer depending on config:
 
 ```yaml
 services:
@@ -356,7 +356,7 @@ services:
     image: quarkus/tenant-jvm
     environment:
       QUARKUS_HTTP_PORT: 8080
-      
+
   consumer:
     image: quarkus/tenant-jvm  # same image!
     environment:
@@ -379,7 +379,7 @@ Or with Quarkus profiles:
 
 There are three ways to handle scheduled jobs in Java containers:
 
-### Option 1: Built-in scheduler (Quarkus @Scheduled / Spring @Scheduled)
+### Option 1: Built-in scheduler (Quarkus `@Scheduled`)
 
 Your app container runs permanently and an internal thread fires the job:
 
@@ -391,12 +391,12 @@ public class MyJob {
 }
 ```
 
-In Docker: just a normal long-running container. Nothing special needed. The JVM process keeps running and the scheduler thread fires.
+In Docker: just a normal long-running container. Nothing special needed.
 
-**Pros:** Simple, lives with the app, can access all app beans/services.
-**Cons:** The container must stay alive even when idle. If the container crashes between runs, the job doesn't run.
+**Pros:** Simple, lives with the app, can access all app beans/services.  
+**Cons:** The container must stay alive even when idle. If it crashes between runs, the job doesn't run.
 
-### Option 2: Dedicated cron container (same image, different entrypoint)
+### Option 2: Dedicated cron container (same image, different config)
 
 ```yaml
 services:
@@ -405,7 +405,6 @@ services:
     environment:
       JOB_NAME: "daily-report"
       QUARKUS_HTTP_PORT: 0
-    # This runs, does its job, and exits — it's a batch container
     restart: "no"  # don't restart after it exits cleanly
 ```
 
@@ -439,19 +438,19 @@ Kubernetes starts a fresh container at the scheduled time, runs it, and tears it
 
 ## PART 8 — Optimizing Your Dockerfiles
 
-### 8.1 — Add a multi-stage build for Spring Boot
+### 8.1 — Multi-stage build (build inside Docker — no Java needed on the CI machine)
 
-Your Quarkus files already have the build output copied in. But many teams do the Maven/Gradle build INSIDE Docker too (so the build machine doesn't need Java installed):
+Many teams do the Maven build INSIDE Docker so the build machine doesn't need Java installed:
 
 ```dockerfile
 # ============ STAGE 1: Build ============
 FROM eclipse-temurin:21-jdk-alpine AS builder
 WORKDIR /build
 
-# Copy dependency specs first (for caching!)
-COPY pom.xml .
-COPY .mvn/ .mvn/
+# Copy Maven wrapper and pom first (for layer caching)
 COPY mvnw .
+COPY .mvn/ .mvn/
+COPY pom.xml .
 
 # Download dependencies — this layer is cached unless pom.xml changes
 RUN ./mvnw dependency:go-offline -q
@@ -490,21 +489,21 @@ Spring Boot 2.3+ supports layered JARs. In your `pom.xml`:
 </plugin>
 ```
 
-Then extract layers:
+Then extract layers in Docker:
 ```dockerfile
 RUN java -Djarmode=layertools -jar app.jar extract
 ```
 
 This produces the same 4-folder structure as Quarkus fast-JAR, giving you the same layer caching benefits.
 
-### 8.3 — .dockerignore (often forgotten, very impactful)
+### 8.3 — `.dockerignore` (often forgotten, very impactful)
 
 Create a `.dockerignore` file next to your Dockerfile:
 ```
 .git/
 .gitignore
 README.md
-target/       # for Maven — we only want the built output
+target/
 *.md
 .idea/
 *.iml
@@ -515,35 +514,29 @@ Without this, `COPY . .` sends your entire Git history and IDE files to the Dock
 
 ### 8.4 — Pin your base image versions
 
-Bad:
 ```dockerfile
+# ❌ Bad — image changes without you changing anything
 FROM registry.access.redhat.com/ubi9:latest
-```
 
-Good:
-```dockerfile
+# ✅ Good — fully reproducible
 FROM registry.access.redhat.com/ubi9/openjdk-21:1.22
 ```
 
-`latest` means your image changes without you changing anything, breaking reproducibility. You already do this correctly in your JVM Dockerfile.
+`latest` breaks reproducibility. You already do this correctly in your JVM Dockerfile.
 
 ### 8.5 — Combine RUN commands
 
-Bad (3 layers):
 ```dockerfile
+# ❌ Bad — 3 layers, cleanup doesn't work (previous layer still holds the cache files)
 RUN apt-get update
 RUN apt-get install -y curl
 RUN rm -rf /var/lib/apt/lists/*
-```
 
-Good (1 layer, cleanup is in the same layer):
-```dockerfile
+# ✅ Good — 1 layer, cleanup is in the same layer so it actually reduces image size
 RUN apt-get update \
     && apt-get install -y curl \
     && rm -rf /var/lib/apt/lists/*
 ```
-
-If the cleanup is in a separate RUN, the cached files are still stored in the previous layer even if you delete them.
 
 ---
 
@@ -551,9 +544,9 @@ If the cleanup is in a separate RUN, the cached files are still stored in the pr
 
 This is where most people get hurt. Java by default looks at the TOTAL host RAM (e.g., 32GB) and sets heap to 25% of it (8GB). But your container limit is 512MB. Result: the JVM tries to allocate 8GB, gets OOMKilled.
 
-Modern Java (11+) is container-aware. It reads cgroups limits. But you still need to set it up correctly.
+Modern Java (11+) is container-aware — it reads cgroup limits. But you still need to set it up correctly.
 
-### In your JVM Dockerfile, the base image handles this via run-java.sh:
+### In your JVM Dockerfile, the base image handles this via `run-java.sh`:
 
 - `JAVA_MAX_MEM_RATIO=50` → heap = 50% of container memory limit
 - `JAVA_INITIAL_MEM_RATIO=25` → initial heap = 25% of max heap
@@ -575,9 +568,9 @@ ENV JAVA_OPTS="\
   -XX:+ExitOnOutOfMemoryError"
 ```
 
-- `+UseContainerSupport` — reads cgroup memory/CPU limits (default ON in Java 11+, but explicit is clear)
+- `+UseContainerSupport` — reads cgroup memory/CPU limits (default ON in Java 11+, but being explicit is clearer)
 - `MaxRAMPercentage=75.0` — heap = 75% of container limit
-- `+UseG1GC` — better GC for most web app workloads (parallel GC is the default in OpenJDK images)
+- `+UseG1GC` — better GC for most web app workloads
 - `+ExitOnOutOfMemoryError` — crash immediately on OOM instead of thrashing (lets the orchestrator restart you cleanly)
 
 ---
@@ -593,7 +586,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
 
 Quarkus exposes `/q/health/live` (liveness) and `/q/health/ready` (readiness) with the `quarkus-smallrye-health` extension. Spring Boot Actuator exposes `/actuator/health`.
 
-- `--start-period=30s` — don't fail health checks during the first 30s (JVM warmup)
+- `--start-period=30s` — don't fail health checks during the first 30s (JVM warmup time)
 - `liveness` — "is the process alive and not deadlocked?" → if fails, restart container
 - `readiness` — "is it ready to serve traffic?" → if fails, remove from load balancer but don't restart
 
@@ -603,22 +596,22 @@ Quarkus exposes `/q/health/live` (liveness) and `/q/health/ready` (readiness) wi
 
 ```dockerfile
 # ============================================================
-# STAGE 1: Build (only runs in CI, not in prod image)
+# STAGE 1: Build (only runs in CI, not shipped in the final image)
 # ============================================================
 FROM registry.access.redhat.com/ubi9/openjdk-21:1.22 AS builder
 WORKDIR /build
 
-# Gradle wrapper and config (cached unless wrapper changes)
-COPY gradlew .
-COPY gradle/ gradle/
-COPY build.gradle settings.gradle gradle.properties* ./
+# Maven wrapper and pom (cached unless these files change)
+COPY mvnw .
+COPY .mvn/ .mvn/
+COPY pom.xml .
 
-# Download dependencies (cached unless build.gradle changes)
-RUN ./gradlew dependencies --no-daemon -q 2>/dev/null || true
+# Download dependencies (cached unless pom.xml changes)
+RUN ./mvnw dependency:go-offline -q
 
 # Copy source and build
 COPY src/ src/
-RUN ./gradlew build -x test --no-daemon -q
+RUN ./mvnw package -DskipTests -q
 
 # ============================================================
 # STAGE 2: Runtime image
@@ -635,17 +628,17 @@ ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en'
 # Ordered from least-changed to most-changed
 # If a layer is unchanged, Docker reuses it from cache
 
-# Layer A: 3rd party deps — only changes when pom.xml/build.gradle changes (~weekly)
-COPY --chown=185 --from=builder /build/build/quarkus-app/lib/ /deployments/lib/
+# Layer A: 3rd party deps — only changes when pom.xml changes (~weekly)
+COPY --chown=185 --from=builder /build/target/quarkus-app/lib/ /deployments/lib/
 
 # Layer B: Quarkus launcher — rarely changes (~monthly with Quarkus upgrades)
-COPY --chown=185 --from=builder /build/build/quarkus-app/*.jar /deployments/
+COPY --chown=185 --from=builder /build/target/quarkus-app/*.jar /deployments/
 
 # Layer C: Your app code — changes every commit
-COPY --chown=185 --from=builder /build/build/quarkus-app/app/ /deployments/app/
+COPY --chown=185 --from=builder /build/target/quarkus-app/app/ /deployments/app/
 
 # Layer D: Quarkus processed bytecode — changes when Quarkus config changes
-COPY --chown=185 --from=builder /build/build/quarkus-app/quarkus/ /deployments/quarkus/
+COPY --chown=185 --from=builder /build/target/quarkus-app/quarkus/ /deployments/quarkus/
 
 EXPOSE 8080
 USER 185
@@ -672,9 +665,9 @@ ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
 ```
 Host machine (before docker build):
-  build/quarkus-app/    ← Gradle build output
+  target/quarkus-app/   ← Maven build output
   src/                  ← source code (NOT copied to prod image)
-  .dockerignore         ← excludes .git, IDE files, etc.
+  .dockerignore         ← excludes .git, IDE files, target/ etc.
 
 Inside the container at runtime:
   /deployments/lib/     ← all dependency JARs (Hibernate, Jackson, Kafka client...)
@@ -707,16 +700,18 @@ Is it a cron job or batch task?
   NO  → Long-running service with health checks
 ```
 
---- 
+---
 
 # Quarkus Build & Run Modes
 
 ---
 
-## 1. Run docker and keycloack if you have infrastructure (local development)
+## 0. Start infrastructure (local development)
+
+Start Docker and Keycloak before running the app:
 
 ```bash
-docker-compose -f docker-compose.dev-env.yml up -d ( tenant project )
+docker-compose -f docker-compose.dev-env.yml up -d
 ```
 
 ---
@@ -726,7 +721,7 @@ docker-compose -f docker-compose.dev-env.yml up -d ( tenant project )
 Hot reload, no build needed. Quarkus recompiles on the fly.
 
 ```bash
-./mvnw quarkus:dev
+mvn quarkus:dev
 ```
 
 - Starts on `http://localhost:8080`
@@ -742,7 +737,7 @@ Compiles to a regular JAR, runs on the JVM. Fastest to build, slowest to start.
 
 **Build:**
 ```bash
-./mvnw clean package -DskipTests
+mvn clean package -DskipTests
 ```
 
 **Run:**
@@ -774,27 +769,29 @@ Compiles to a native binary. Slow to build, very fast to start, low memory footp
 ### 3a. Local native (GraalVM/Mandrel installed on your machine)
 
 ```bash
-./mvnw clean package -Pnative -DskipTests -Dquarkus.native.remote-container-build=false
+mvn clean package -Pnative -DskipTests -Dquarkus.native.remote-container-build=false
 ```
 
 **Run:**
 ```bash
-./target/your-app-1.0-runner
+./target/your-app-999-SNAPSHOT-runner
 ```
 
-### 3b. Container native (Docker builds the native image, no GraalVM needed locally)
+### 3b. Container native (Docker builds the native image — no GraalVM needed locally)
 
 ```bash
-./mvnw clean package -Pnative -DskipTests -Dquarkus.native.container-build=true
+mvn clean package -Pnative -DskipTests -Dquarkus.native.container-build=true
 ```
 
-### 3c. Remote container native (your project's setup — build happens on a remote builder)
+Docker pulls the Mandrel builder image and runs `native-image` inside it. Your machine only needs Docker.
+
+### 3c. Remote container native (your project's setup)
 
 ```bash
-./mvnw clean package -Pnative -DskipTests -Dquarkus.profile=dev -T 1
+mvn clean package -Pnative -DskipTests -Dquarkus.profile=dev -T 1
 ```
 
-The `remote-container-build=true` is already set in the pom `native` profile, so it uses the company's remote builder image.
+`remote-container-build=true` is already set in the `native` profile in `pom.xml`, so it uses the company's remote builder image automatically.
 
 **Run:**
 ```bash
@@ -806,7 +803,7 @@ The `remote-container-build=true` is already set in the pom `native` profile, so
 ## 4. Native container image (build native + wrap in Docker image)
 
 ```bash
-./mvnw clean package -Pnative -DskipTests \
+mvn clean package -Pnative -DskipTests \
   -Dquarkus.native.container-build=true \
   -Dquarkus.container-image.build=true
 ```
@@ -829,7 +826,7 @@ docker run -i --rm -p 8080:8080 your-org/your-app:1.0
 
 ---
 
-## Useful flags
+## Useful Flags
 
 | Flag | Effect |
 |---|---|
