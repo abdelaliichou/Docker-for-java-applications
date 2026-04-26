@@ -774,7 +774,7 @@ mvn clean package -Pnative -DskipTests -Dquarkus.native.remote-container-build=f
 
 **Run:**
 ```bash
-./target/your-app-999-SNAPSHOT-runner
+./target/your-app-1.0-runner
 ```
 
 ### 3b. Container native (Docker builds the native image — no GraalVM needed locally)
@@ -797,6 +797,45 @@ mvn clean package -Pnative -DskipTests -Dquarkus.profile=dev -T 1
 ```bash
 ./application/api/api-core/target/api-core-999-SNAPSHOT-runner
 ```
+
+### 3d. Native build command variants — what's the difference?
+
+These three commands all produce a native binary, but differ in **where** GraalVM runs:
+
+**`mvn package -Pnative`**
+Activates the `native` Maven profile from your `pom.xml`. That profile sets `quarkus.package.type=native` plus any other properties your team configured (builder image, memory limits, etc.). Runs `native-image` using GraalVM/Mandrel **installed locally on your machine**.
+```bash
+mvn package -Pnative -DskipTests
+```
+→ Requires GraalVM or Mandrel installed locally. Uses whatever extra config your `native` profile defines.
+
+---
+
+**`mvn package -Dquarkus.package.type=native`**
+Does the same thing (triggers native compilation) but **bypasses the Maven profile entirely** — sets the property directly on the command line. Useful if your `pom.xml` has no `native` profile, or you want native compilation without activating anything else the profile might configure.
+```bash
+mvn package -Dquarkus.package.type=native -DskipTests
+```
+→ Requires GraalVM or Mandrel installed locally. No profile side-effects.
+
+---
+
+**`mvn package -Pnative -Dquarkus.native.container-build=true`**
+Same as the first, but the extra flag tells Quarkus: *"don't use my local GraalVM — pull the Mandrel builder Docker image and run `native-image` inside a container."* Your machine never needs GraalVM at all.
+```bash
+mvn package -Pnative -Dquarkus.native.container-build=true -DskipTests
+```
+→ Requires Docker locally. No GraalVM/Mandrel needed. This is what most CI pipelines use.
+
+---
+
+**Summary:**
+
+| Command | Needs local GraalVM | Needs Docker | Uses `pom.xml` profile |
+|---|---|---|---|
+| `-Pnative` | ✅ Yes | ❌ No | ✅ Yes |
+| `-Dquarkus.package.type=native` | ✅ Yes | ❌ No | ❌ No |
+| `-Pnative -Dquarkus.native.container-build=true` | ❌ No | ✅ Yes | ✅ Yes |
 
 ---
 
