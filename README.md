@@ -846,8 +846,6 @@ application/cron/target/cron-999-SNAPSHOT-runner                    ← cron job
 application/listener/listener-core/target/listener-core-999-SNAPSHOT-runner  ← kafka listener
 ```
 
----
-
 **To run the native binary** (example with api-core):
 
 On WSL/Linux:
