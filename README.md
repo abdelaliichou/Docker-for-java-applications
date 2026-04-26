@@ -827,6 +827,49 @@ mvn package -Pnative "-Dquarkus.native.container-build=true" -DskipTests
 ```
 → Requires Docker locally. No GraalVM/Mandrel needed. This is what most CI pipelines use.
 
+Here's exactly what happens here step by step:
+
+**1. Maven builds all modules normally** (compile, package) for the non-native ones
+
+**2. For the native modules (`api-core`, `cron`, `listener-core`), Quarkus:**
+- Pulls the Mandrel builder Docker image (`quay.io/quarkus/ubi9-quarkus-mandrel-builder-image:...`)
+- Spins up a container from that image
+- Mounts your project's `target/` folder into the container
+- Runs `native-image` inside the container (this is the slow part — 5 to 15 min)
+- Outputs the binary back into your local `target/` folder
+- Stops and removes the container automatically
+
+**3. You get a binary in:**
+```
+application/api/api-core/target/api-core-999-SNAPSHOT-runner        ← HTTP API
+application/cron/target/cron-999-SNAPSHOT-runner                    ← cron jobs
+application/listener/listener-core/target/listener-core-999-SNAPSHOT-runner  ← kafka listener
+```
+
+---
+
+**To run the native binary** (example with api-core):
+
+On WSL/Linux:
+```bash
+./application/api/api-core/target/api-core-999-SNAPSHOT-runner
+```
+
+On PowerShell (the binary is a Linux executable — it won't run on Windows directly):
+```powershell
+# You need to run it inside WSL
+wsl ./application/api/api-core/target/api-core-999-SNAPSHOT-runner
+```
+
+With a Quarkus profile:
+```bash
+./application/api/api-core/target/api-core-999-SNAPSHOT-runner -Dquarkus.profile=dev
+```
+
+---
+
+> ⚠️ Since `container-build=true` compiles **inside a Linux container**, the output binary is a **Linux executable**. It won't run natively on Windows — only inside WSL or a Docker container. If you want a binary that runs on Windows, you'd need a Windows GraalVM build, which Quarkus doesn't officially support for production use.
+
 ---
 
 **Summary:**
