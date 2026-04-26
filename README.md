@@ -769,7 +769,7 @@ Compiles to a native binary. Slow to build, very fast to start, low memory footp
 ### 3a. Local native (GraalVM/Mandrel installed on your machine)
 
 ```bash
-mvn clean package -Pnative -DskipTests -Dquarkus.native.remote-container-build=false
+mvn clean package -Pnative -DskipTests "-Dquarkus.native.remote-container-build=false"
 ```
 
 **Run:**
@@ -780,7 +780,7 @@ mvn clean package -Pnative -DskipTests -Dquarkus.native.remote-container-build=f
 ### 3b. Container native (Docker builds the native image — no GraalVM needed locally)
 
 ```bash
-mvn clean package -Pnative -DskipTests -Dquarkus.native.container-build=true
+mvn clean package -Pnative -DskipTests "-Dquarkus.native.container-build=true"
 ```
 
 Docker pulls the Mandrel builder image and runs `native-image` inside it. Your machine only needs Docker.
@@ -814,7 +814,7 @@ mvn package -Pnative -DskipTests
 **`mvn package -Dquarkus.package.type=native`**
 Does the same thing (triggers native compilation) but **bypasses the Maven profile entirely** — sets the property directly on the command line. Useful if your `pom.xml` has no `native` profile, or you want native compilation without activating anything else the profile might configure.
 ```bash
-mvn package -Dquarkus.package.type=native -DskipTests
+mvn package "-Dquarkus.package.type=native" -DskipTests
 ```
 → Requires GraalVM or Mandrel installed locally. No profile side-effects.
 
@@ -823,7 +823,7 @@ mvn package -Dquarkus.package.type=native -DskipTests
 **`mvn package -Pnative -Dquarkus.native.container-build=true`**
 Same as the first, but the extra flag tells Quarkus: *"don't use my local GraalVM — pull the Mandrel builder Docker image and run `native-image` inside a container."* Your machine never needs GraalVM at all.
 ```bash
-mvn package -Pnative -Dquarkus.native.container-build=true -DskipTests
+mvn package -Pnative "-Dquarkus.native.container-build=true" -DskipTests
 ```
 → Requires Docker locally. No GraalVM/Mandrel needed. This is what most CI pipelines use.
 
