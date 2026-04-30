@@ -2,14 +2,25 @@
 
 ---
 
-## 0. Start infrastructure (local development)
+## Command general dans une architecture hexaginal & native dev profile configuration
 
-Start Docker and Keycloak before running the app:
+Start the infrastructure ( `Docker and Keycloak` ) before running the app:
 
 ```bash
 docker-compose -f docker-compose.dev-env.yml up -d
 ```
 
+Build natively the api app:
+
+```bash
+./mvnw clean package -Pnative -pl application/api/api-core -am -DskipTests -Dquarkus.native.remote-container-build=false -Dquarkus.profile=dev -T 1
+```
+
+Run the api:
+
+```bash
+./application/api/api-core/target/api-core-999-SNAPSHOT-runner 
+```
 ---
 
 ## 1. Dev Mode (local development)
