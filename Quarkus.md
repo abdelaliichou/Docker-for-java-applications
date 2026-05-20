@@ -21,6 +21,11 @@ Run the api:
 ```bash
 ./application/api/api-core/target/api-core-999-SNAPSHOT-runner 
 ```
+Check if the api is up and running:
+
+```bash
+http://localhost:8080/q/health/ready
+```
 ---
 
 ## 1. Dev Mode (local development)
